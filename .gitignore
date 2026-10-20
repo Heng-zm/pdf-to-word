@@ -1,0 +1,19 @@
+# dependencies
+node_modules/
+
+# next.js
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# tesseract language data and caches
+tessdata/
+.cache/
+
+# os
+.DS_Store
+Thumbs.db
+
+# local env files
+.env*.local
