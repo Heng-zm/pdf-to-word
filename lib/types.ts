@@ -111,8 +111,11 @@ export type ExportOptions = {
   preserveBreaks: boolean;
 };
 
+export type ModelQuality = "best" | "fast" | "standard";
+
 export type OcrOptions = {
   langs: string;
+  modelQuality: ModelQuality;
   /** render scale for PDFs (2 = 144 dpi) */
   pdfScale: number;
   /** maximum long edge of an uploaded image in px before OCR */
@@ -153,6 +156,7 @@ export type OcrProgress =
 
 export const DEFAULT_OCR_OPTIONS: OcrOptions = {
   langs: "eng",
+  modelQuality: "best",
   pdfScale: 2,
   maxImageEdge: 2600,
   deskew: false,

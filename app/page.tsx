@@ -84,8 +84,18 @@ export default function Home() {
     (next: OcrOptions) => {
       setOcrOptions(next);
       if (fontTouched) return;
-      const recommended = LANGUAGE_FONTS[next.langs] ?? DEFAULT_EXPORT_OPTIONS.fontFamily;
-      setExportOptions((current) => ({ ...current, fontFamily: recommended }));
+      const langCodes = next.langs.split("+").map((s) => s.trim().toLowerCase());
+      let recommended: string | undefined;
+      for (const code of langCodes) {
+        if (LANGUAGE_FONTS[code]) {
+          recommended = LANGUAGE_FONTS[code];
+          break;
+        }
+      }
+      setExportOptions((current) => ({
+        ...current,
+        fontFamily: recommended ?? DEFAULT_EXPORT_OPTIONS.fontFamily,
+      }));
     },
     [fontTouched],
   );
@@ -96,8 +106,14 @@ export default function Home() {
   }, []);
 
   const previewFont = useMemo(() => {
-    const stack = PREVIEW_FONT_STACKS[ocrOptions.langs];
-    const chosen = exportOptions.fontFamily || LANGUAGE_FONTS[ocrOptions.langs] || "Calibri";
+    const langCodes = ocrOptions.langs.split("+").map((s) => s.trim().toLowerCase());
+    let stack: string | undefined;
+    let recFont: string | undefined;
+    for (const code of langCodes) {
+      if (!stack && PREVIEW_FONT_STACKS[code]) stack = PREVIEW_FONT_STACKS[code];
+      if (!recFont && LANGUAGE_FONTS[code]) recFont = LANGUAGE_FONTS[code];
+    }
+    const chosen = exportOptions.fontFamily || recFont || "Calibri";
     return stack ? `"${chosen}", ${stack}` : `"${chosen}", sans-serif`;
   }, [ocrOptions.langs, exportOptions.fontFamily]);
 

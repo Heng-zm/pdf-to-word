@@ -1,6 +1,7 @@
 "use client";
 
-import type { ColumnMode, ExportOptions, OcrOptions, PageSizeName } from "@/lib/types";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { ColumnMode, ExportOptions, ModelQuality, OcrOptions, PageSizeName } from "@/lib/types";
 
 type Props = {
   ocr: OcrOptions;
@@ -11,7 +12,15 @@ type Props = {
   detectedColumns: number;
 };
 
-const LANGUAGES = [
+type AvailableModel = {
+  name: string;
+  label: string;
+  sizeBytes: number;
+  isCustom: boolean;
+  filename: string;
+};
+
+const STANDARD_LANGUAGES: [string, string][] = [
   ["eng", "English"],
   ["deu", "German"],
   ["fra", "French"],
@@ -34,7 +43,17 @@ const LANGUAGES = [
   ["jpn", "Japanese"],
   ["kor", "Korean"],
   ["vie", "Vietnamese"],
-] as const;
+];
+
+const POPULAR_COMBOS = [
+  { label: "English + German", value: "eng+deu" },
+  { label: "Khmer + English", value: "khm+eng" },
+  { label: "English + French", value: "eng+fra" },
+  { label: "Spanish + English", value: "spa+eng" },
+  { label: "Chinese + English", value: "chi_sim+eng" },
+  { label: "Japanese + English", value: "jpn+eng" },
+  { label: "Arabic + English", value: "ara+eng" },
+];
 
 const FONTS = [
   "Calibri",
@@ -62,6 +81,12 @@ const FONTS = [
   "Malgun Gothic",
 ];
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export function OptionsPanel({
   ocr,
   onOcrChange,
@@ -70,38 +95,366 @@ export function OptionsPanel({
   disabled,
   detectedColumns,
 }: Props) {
+  const [modelTab, setModelTab] = useState<"preset" | "combo" | "upload">(() => {
+    if (ocr.langs.includes("+")) return "combo";
+    return "preset";
+  });
+  const [models, setModels] = useState<AvailableModel[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const fetchModels = useCallback(async () => {
+    try {
+      const res = await fetch("/api/models");
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.models)) {
+          setModels(data.models);
+        }
+      }
+    } catch {
+      /* ignore fetch error */
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchModels();
+  }, [fetchModels]);
+
+  const handleUploadModel = async (file: File) => {
+    if (!file.name.endsWith(".traineddata") && !file.name.endsWith(".traineddata.gz")) {
+      setUploadStatus({
+        type: "error",
+        text: "Please select a .traineddata or .traineddata.gz file.",
+      });
+      return;
+    }
+
+    setUploading(true);
+    setUploadStatus(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const res = await fetch("/api/models", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to upload model.");
+      }
+
+      setUploadStatus({
+        type: "success",
+        text: `Model "${data.model.name}" installed and activated!`,
+      });
+      await fetchModels();
+      onOcrChange({ ...ocr, langs: data.model.name });
+    } catch (err) {
+      setUploadStatus({
+        type: "error",
+        text: err instanceof Error ? err.message : "Upload failed.",
+      });
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handleDeleteModel = async (filename: string, modelName: string) => {
+    try {
+      const res = await fetch(`/api/models?filename=${encodeURIComponent(filename)}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        setUploadStatus({
+          type: "success",
+          text: `Model "${modelName}" removed.`,
+        });
+        await fetchModels();
+        if (ocr.langs === modelName) {
+          onOcrChange({ ...ocr, langs: "eng" });
+        }
+      } else {
+        const data = await res.json();
+        setUploadStatus({ type: "error", text: data.error || "Failed to delete model." });
+      }
+    } catch (err) {
+      setUploadStatus({
+        type: "error",
+        text: err instanceof Error ? err.message : "Delete failed.",
+      });
+    }
+  };
+
+  const customModels = models.filter((m) => m.isCustom);
+  const activeLangs = ocr.langs.split("+").map((s) => s.trim().toLowerCase());
+
   return (
     <div className="options-panel-inner">
       <div className="options-section">
         <div className="section-header">
           <span className="section-badge">01</span>
           <div>
-            <p className="section-title">Scan &amp; Detection</p>
-            <span className="section-subtitle">Image preprocessing and column analysis</span>
+            <p className="section-title">Scan &amp; OCR Model</p>
+            <span className="section-subtitle">Tesseract model management &amp; preprocessing</span>
           </div>
         </div>
 
+        {/* Model Quality segmented control */}
         <div className="field">
-          <label htmlFor="lang">
-            <span>Recognition language</span>
-            <span className="field-hint">OCR Model</span>
+          <label>
+            <span>Model Quality</span>
+            <span className="field-hint">Accuracy vs Speed</span>
           </label>
-          <div className="select-wrap">
+          <div className="model-quality-row" role="group" aria-label="Model Quality">
+            <button
+              type="button"
+              disabled={disabled}
+              aria-pressed={ocr.modelQuality === "best"}
+              onClick={() => onOcrChange({ ...ocr, modelQuality: "best" })}
+              title="4.0.0_best_int: Maximum recognition accuracy"
+            >
+              ⭐ Best (High Acc)
+            </button>
+            <button
+              type="button"
+              disabled={disabled}
+              aria-pressed={ocr.modelQuality === "fast"}
+              onClick={() => onOcrChange({ ...ocr, modelQuality: "fast" })}
+              title="4.0.0_fast: Faster inference, 1/3 size"
+            >
+              ⚡ Fast (Speed)
+            </button>
+            <button
+              type="button"
+              disabled={disabled}
+              aria-pressed={ocr.modelQuality === "standard"}
+              onClick={() => onOcrChange({ ...ocr, modelQuality: "standard" })}
+              title="4.0.0: Standard baseline model"
+            >
+              Standard
+            </button>
+          </div>
+        </div>
+
+        {/* Model Tabs */}
+        <div className="field">
+          <label>
+            <span>Language &amp; Model</span>
+            <span className="field-hint">Active: {ocr.langs}</span>
+          </label>
+
+          <div className="model-tabs" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-pressed={modelTab === "preset"}
+              onClick={() => setModelTab("preset")}
+            >
+              Presets
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-pressed={modelTab === "combo"}
+              onClick={() => setModelTab("combo")}
+            >
+              Multi-Lang
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-pressed={modelTab === "upload"}
+              onClick={() => setModelTab("upload")}
+            >
+              Upload Model {customModels.length > 0 && `(${customModels.length})`}
+            </button>
+          </div>
+
+          {/* TAB 1: Presets */}
+          {modelTab === "preset" && (
+            <div className="select-wrap">
+              <select
+                id="lang"
+                value={ocr.langs}
+                disabled={disabled}
+                onChange={(event) => onOcrChange({ ...ocr, langs: event.target.value })}
+              >
+                <optgroup label="Standard Languages">
+                  {STANDARD_LANGUAGES.map(([code, label]) => (
+                    <option key={code} value={code}>
+                      {label} ({code})
+                    </option>
+                  ))}
+                </optgroup>
+                {customModels.length > 0 && (
+                  <optgroup label="Custom Installed Models">
+                    {customModels.map((m) => (
+                      <option key={m.name} value={m.name}>
+                        {m.label} ({formatBytes(m.sizeBytes)})
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+              <div className="select-arrow" />
+            </div>
+          )}
+
+          {/* TAB 2: Multi-Language Combo */}
+          {modelTab === "combo" && (
+            <div>
+              <div className="input-wrap">
+                <input
+                  type="text"
+                  placeholder="e.g. eng+deu or khm+eng"
+                  value={ocr.langs}
+                  disabled={disabled}
+                  onChange={(e) => onOcrChange({ ...ocr, langs: e.target.value.trim() })}
+                />
+              </div>
+              <div className="combo-chips">
+                {POPULAR_COMBOS.map((combo) => (
+                  <button
+                    key={combo.value}
+                    type="button"
+                    className={`chip-btn ${ocr.langs === combo.value ? "active" : ""}`}
+                    onClick={() => onOcrChange({ ...ocr, langs: combo.value })}
+                  >
+                    + {combo.value}
+                  </button>
+                ))}
+              </div>
+              <div className="desc" style={{ marginTop: 6 }}>
+                Combine codes with &quot;+&quot;. Tesseract simultaneously evaluates all specified languages.
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: Upload Custom Model */}
+          {modelTab === "upload" && (
+            <div>
+              <div
+                className="model-upload-zone"
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (e.dataTransfer.files?.[0]) {
+                    handleUploadModel(e.dataTransfer.files[0]);
+                  }
+                }}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".traineddata,.gz"
+                  disabled={disabled || uploading}
+                  onChange={(e) => {
+                    if (e.target.files?.[0]) {
+                      handleUploadModel(e.target.files[0]);
+                    }
+                  }}
+                />
+                <svg
+                  width="22"
+                  height="22"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="17 8 12 3 7 8" />
+                  <line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
+                <span style={{ fontSize: 12, fontWeight: 600 }}>
+                  {uploading ? "Installing model into runtime..." : "Drop .traineddata / .gz here"}
+                </span>
+                <span style={{ fontSize: 11, color: "var(--ink-tertiary)" }}>
+                  Click to browse from disk (Max 120 MB)
+                </span>
+              </div>
+
+              {uploadStatus && (
+                <div className={`model-feedback ${uploadStatus.type}`}>{uploadStatus.text}</div>
+              )}
+
+              {/* Uploaded models list */}
+              <div className="custom-models-list">
+                <span style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-secondary)" }}>
+                  Installed Custom Models:
+                </span>
+                {customModels.length === 0 ? (
+                  <div className="model-empty">No custom models uploaded yet.</div>
+                ) : (
+                  customModels.map((m) => {
+                    const isActive = activeLangs.includes(m.name);
+                    return (
+                      <div key={m.filename} className="custom-model-card">
+                        <div>
+                          <span className="name">{m.name}</span>
+                          <span className="size">({formatBytes(m.sizeBytes)})</span>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          {isActive ? (
+                            <span className="badge-active">Active</span>
+                          ) : (
+                            <button
+                              type="button"
+                              className="btn-activate"
+                              onClick={() => onOcrChange({ ...ocr, langs: m.name })}
+                              title="Set as active recognition model"
+                            >
+                              Activate
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="btn-icon-danger"
+                            onClick={() => handleDeleteModel(m.filename, m.name)}
+                            title="Delete custom model"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Fallback hidden select for scripts if on another tab */}
+          {modelTab !== "preset" && (
             <select
               id="lang"
               value={ocr.langs}
+              style={{ display: "none" }}
               disabled={disabled}
-              onChange={(event) => onOcrChange({ ...ocr, langs: event.target.value })}
+              onChange={(e) => onOcrChange({ ...ocr, langs: e.target.value })}
             >
-              {LANGUAGES.map(([code, label]) => (
-                <option key={code} value={code}>
-                  {label}
-                </option>
-              ))}
+              <option value={ocr.langs}>{ocr.langs}</option>
             </select>
-            <div className="select-arrow" />
+          )}
+
+          <div className="desc" style={{ marginTop: 6 }}>
+            Models are automatically cached in safe ephemeral storage for instant re-runs.
           </div>
-          <div className="desc">Local models are used instantly; others download on first use.</div>
         </div>
 
         <div className="row">

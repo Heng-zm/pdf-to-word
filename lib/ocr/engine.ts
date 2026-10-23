@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createWorker, PSM, type Worker } from "tesseract.js";
+import type { ModelQuality } from "@/lib/types";
 
 export type RecognizeOptions = {
   /** page segmentation mode to use for the crop */
@@ -17,7 +18,7 @@ export type RecognizedLine = {
   words: { text: string; bbox: { x0: number; y0: number; x1: number; y1: number }; confidence: number }[];
 };
 
-const TESSDATA_DIR = path.join(process.cwd(), "tessdata");
+export const TESSDATA_DIR = path.join(process.cwd(), "tessdata");
 
 /**
  * Resolves a writable cache directory for Tesseract models.
@@ -25,7 +26,7 @@ const TESSDATA_DIR = path.join(process.cwd(), "tessdata");
  * the filesystem is strictly read-only except for the OS temporary directory (`tmpdir()`).
  * We never attempt to create or write to `process.cwd()` to avoid any `ENOENT` or `EROFS` errors.
  */
-function getCacheDir(): string {
+export function getCacheDir(): string {
   const custom = process.env.TESSERACT_CACHE_DIR;
   if (custom) {
     try {
@@ -42,6 +43,86 @@ function getCacheDir(): string {
     return cacheDir;
   } catch {
     return tmpdir();
+  }
+}
+
+const KNOWN_LABELS: Record<string, string> = {
+  eng: "English",
+  deu: "German",
+  fra: "French",
+  spa: "Spanish",
+  ita: "Italian",
+  por: "Portuguese",
+  nld: "Dutch",
+  pol: "Polish",
+  rus: "Russian",
+  ukr: "Ukrainian",
+  tur: "Turkish",
+  ara: "Arabic",
+  hin: "Hindi",
+  khm: "Khmer",
+  mya: "Burmese",
+  tha: "Thai",
+  lao: "Lao",
+  chi_sim: "Chinese (simplified)",
+  chi_tra: "Chinese (traditional)",
+  jpn: "Japanese",
+  kor: "Korean",
+  vie: "Vietnamese",
+};
+
+export type AvailableModel = {
+  name: string;
+  label: string;
+  sizeBytes: number;
+  isCustom: boolean;
+  filename: string;
+};
+
+/** List all installed local models and user-uploaded custom models. */
+export function getAvailableModels(): AvailableModel[] {
+  const cacheDir = getCacheDir();
+  const candidateDirs = [process.cwd(), TESSDATA_DIR, cacheDir];
+  const seen = new Set<string>();
+  const models: AvailableModel[] = [];
+
+  for (const dir of candidateDirs) {
+    if (!existsSync(/*turbopackIgnore: true*/ dir)) continue;
+    try {
+      const files = readdirSync(/*turbopackIgnore: true*/ dir);
+      for (const file of files) {
+        if (file.endsWith(".traineddata") || file.endsWith(".traineddata.gz")) {
+          const name = file.replace(/\.traineddata(\.gz)?$/i, "").toLowerCase();
+          if (seen.has(name)) continue;
+          seen.add(name);
+          const fullPath = path.join(/*turbopackIgnore: true*/ dir, file);
+          const stat = statSync(/*turbopackIgnore: true*/ fullPath);
+          const isCustom = dir === cacheDir;
+          const label = KNOWN_LABELS[name] ?? (isCustom ? `${name} (Custom)` : name);
+          models.push({
+            name,
+            label,
+            sizeBytes: stat.size,
+            isCustom,
+            filename: file,
+          });
+        }
+      }
+    } catch {
+      /* ignore directory read error */
+    }
+  }
+
+  return models;
+}
+
+/** Invalidate and terminate the running OCR worker so model changes take effect immediately. */
+export async function invalidateWorker(): Promise<void> {
+  if (workerPromise) {
+    const existing = await workerPromise.catch(() => null);
+    workerPromise = null;
+    workerLangs = "";
+    if (existing) await existing.terminate().catch(() => {});
   }
 }
 
@@ -103,16 +184,28 @@ function resolveLocalTessdata(langs: string[], cacheDir?: string): LocalTessdata
   return null;
 }
 
-async function createEngineWorker(langs: string): Promise<Worker> {
+async function createEngineWorker(langs: string, quality: ModelQuality = "best"): Promise<Worker> {
   const langList = langs.split("+").filter(Boolean);
   const cacheDir = getCacheDir();
   const workerPath = getWorkerPath();
   const local = resolveLocalTessdata(langList, cacheDir);
 
+  // If local model is not found, determine the remote CDN based on chosen quality
+  let langPath = local?.langPath;
+  if (!langPath) {
+    if (quality === "fast") {
+      langPath = "https://cdn.jsdelivr.net/npm/@tesseract.js-data";
+    } else if (quality === "standard") {
+      langPath = "https://tessdata.projectnaptha.com/4.0.0";
+    } else {
+      langPath = "https://cdn.jsdelivr.net/npm/@tesseract.js-data";
+    }
+  }
+
   // Guard worker creation with a 45-second timeout so it never hangs indefinitely
   const worker = await Promise.race([
     createWorker(langList, 1, {
-      langPath: local?.langPath,
+      langPath,
       cachePath: cacheDir,
       workerPath,
       gzip: local?.gzip ?? true,
@@ -137,17 +230,18 @@ async function createEngineWorker(langs: string): Promise<Worker> {
   return worker;
 }
 
-/** Get (or create) the shared OCR worker, reinitialising it when the language changes. */
-export async function getWorker(langs: string): Promise<Worker> {
-  if (workerPromise && workerLangs !== langs) {
+/** Get (or create) the shared OCR worker, reinitialising it when the language or model quality changes. */
+export async function getWorker(langs: string, quality: ModelQuality = "best"): Promise<Worker> {
+  const workerKey = `${langs}::${quality}`;
+  if (workerPromise && workerLangs !== workerKey) {
     const existing = await workerPromise.catch(() => null);
     workerPromise = null;
     workerLangs = "";
     if (existing) await existing.terminate().catch(() => {});
   }
   if (!workerPromise) {
-    workerLangs = langs;
-    workerPromise = createEngineWorker(langs).catch((err) => {
+    workerLangs = workerKey;
+    workerPromise = createEngineWorker(langs, quality).catch((err) => {
       // Clear worker state so subsequent attempts can retry instead of being stuck on a rejected promise
       workerPromise = null;
       workerLangs = "";
@@ -165,9 +259,10 @@ export async function recognizeCrop(
   image: Buffer,
   options: RecognizeOptions,
   langs: string,
+  quality: ModelQuality = "best",
 ): Promise<RecognizedLine[]> {
   const run = async (): Promise<RecognizedLine[]> => {
-    const worker = await getWorker(langs);
+    const worker = await getWorker(langs, quality);
     await worker.setParameters({
       tessedit_pageseg_mode: options.psm,
       user_defined_dpi: String(options.dpi),

@@ -12,8 +12,13 @@ function parseOptions(raw: string | null): OcrOptions {
   if (!raw) return { ...DEFAULT_OCR_OPTIONS };
   try {
     const parsed = JSON.parse(raw) as Partial<OcrOptions>;
+    const quality =
+      parsed.modelQuality === "fast" || parsed.modelQuality === "standard" || parsed.modelQuality === "best"
+        ? parsed.modelQuality
+        : DEFAULT_OCR_OPTIONS.modelQuality;
     return {
       langs: typeof parsed.langs === "string" ? parsed.langs : DEFAULT_OCR_OPTIONS.langs,
+      modelQuality: quality,
       pdfScale: clampNumber(parsed.pdfScale, 1, 4, DEFAULT_OCR_OPTIONS.pdfScale),
       maxImageEdge: clampNumber(parsed.maxImageEdge, 800, 5000, DEFAULT_OCR_OPTIONS.maxImageEdge),
       deskew: Boolean(parsed.deskew),

@@ -3,7 +3,7 @@ import sharp from "sharp";
 import { analyzeGeometry, buildSlices, deskewPage, estimateSkew, loadPageImage, type Geometry } from "./image";
 import { recognizeCrop, type RecognizedLine } from "./engine";
 import { buildParagraphs, normalizeFontSizes } from "../layout/paragraphs";
-import type { DocumentLayout, OcrOptions, PageLayout, RegionLayout } from "../types";
+import type { DocumentLayout, ModelQuality, OcrOptions, PageLayout, RegionLayout } from "../types";
 import { PAGE_SIZES_TWIPS, LANGUAGE_FONTS } from "../types";
 
 export type PageInput = {
@@ -56,9 +56,10 @@ async function recognizeRegion(
   psm: PSM,
   langs: string,
   expandBy: number,
+  quality: ModelQuality = "best",
 ): Promise<{ lines: RecognizedLine[]; originX: number; originY: number }> {
   const crop = await cropRegion(source, box, pageWidth, pageHeight);
-  const lines = await recognizeCrop(crop.buffer, { psm, dpi: 150 }, langs);
+  const lines = await recognizeCrop(crop.buffer, { psm, dpi: 150 }, langs, quality);
   if (lines.length || expandBy <= 0) return { lines, originX: crop.left, originY: crop.top };
 
   // a very tight crop can leave the engine without enough context to find
@@ -70,7 +71,7 @@ async function recognizeRegion(
     y1: Math.min(pageHeight, box.y1 + expandBy),
   };
   const retryCrop = await cropRegion(source, expanded, pageWidth, pageHeight);
-  const retryLines = await recognizeCrop(retryCrop.buffer, { psm, dpi: 150 }, langs);
+  const retryLines = await recognizeCrop(retryCrop.buffer, { psm, dpi: 150 }, langs, quality);
   return { lines: retryLines, originX: retryCrop.left, originY: retryCrop.top };
 }
 
@@ -141,6 +142,7 @@ async function ocrPageFromImage(
         PSM.AUTO,
         options.langs,
         expandBy,
+        options.modelQuality,
       );
       const pageLines = offsetLines(lines, originX, originY);
       const paragraphs = buildParagraphs({
@@ -174,6 +176,7 @@ async function ocrPageFromImage(
           PSM.SINGLE_BLOCK,
           options.langs,
           expandBy,
+          options.modelQuality,
         );
         const pageLines = offsetLines(lines, originX, originY);
         const column = geometry.columns[cell.columnIndex];
