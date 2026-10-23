@@ -10,7 +10,24 @@ const nextConfig: NextConfig = {
     "pdfjs-dist",
   ],
   outputFileTracingIncludes: {
-    "/api/**/*": ["./*.traineddata", "./*.traineddata.gz", "./tessdata/**/*"],
+    "/**": [
+      "./node_modules/**/*.wasm",
+      "./node_modules/**/*.proto",
+      "./node_modules/tesseract.js/**/*",
+      "./node_modules/tesseract.js-core/**/*",
+      "./*.traineddata",
+      "./*.traineddata.gz",
+      "./tessdata/**/*",
+    ],
+    "/api/**/*": [
+      "./node_modules/**/*.wasm",
+      "./node_modules/**/*.proto",
+      "./node_modules/tesseract.js/**/*",
+      "./node_modules/tesseract.js-core/**/*",
+      "./*.traineddata",
+      "./*.traineddata.gz",
+      "./tessdata/**/*",
+    ],
   },
 };
 

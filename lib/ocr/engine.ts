@@ -22,49 +22,41 @@ const TESSDATA_DIR = path.join(process.cwd(), "tessdata");
 /**
  * Resolves a writable cache directory for Tesseract models.
  * In serverless environments (AWS Lambda, Vercel, read-only containers),
- * process.cwd() is /var/task and is strictly read-only. The OS tmpdir() (/tmp)
- * is the only writable directory.
+ * the filesystem is strictly read-only except for the OS temporary directory (`tmpdir()`).
+ * We never attempt to create or write to `process.cwd()` to avoid any `ENOENT` or `EROFS` errors.
  */
 function getCacheDir(): string {
-  if (process.env.TESSERACT_CACHE_DIR) {
+  const custom = process.env.TESSERACT_CACHE_DIR;
+  if (custom) {
     try {
-      mkdirSync(process.env.TESSERACT_CACHE_DIR, { recursive: true });
-      return process.env.TESSERACT_CACHE_DIR;
+      mkdirSync(custom, { recursive: true });
+      return custom;
     } catch {
-      // Fall through to tmpdir
+      /* fallback to tmpdir */
     }
   }
 
-  const isServerless =
-    Boolean(process.env.VERCEL) ||
-    Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME) ||
-    Boolean(process.env.LAMBDA_TASK_ROOT) ||
-    process.cwd().startsWith("/var/task");
-
-  if (isServerless) {
-    const serverlessCache = path.join(tmpdir(), "tesseract-cache");
-    try {
-      mkdirSync(serverlessCache, { recursive: true });
-      return serverlessCache;
-    } catch {
-      return tmpdir();
-    }
-  }
-
-  // Local development: try .cache/tesseract first, with graceful fallback to tmpdir
+  const cacheDir = path.join(tmpdir(), "tesseract-cache");
   try {
-    const localCache = path.join(process.cwd(), ".cache", "tesseract");
-    mkdirSync(localCache, { recursive: true });
-    return localCache;
+    mkdirSync(cacheDir, { recursive: true });
+    return cacheDir;
   } catch {
-    const fallback = path.join(tmpdir(), "tesseract-cache");
-    try {
-      mkdirSync(fallback, { recursive: true });
-      return fallback;
-    } catch {
-      return tmpdir();
-    }
+    return tmpdir();
   }
+}
+
+/**
+ * Resolves the Node-targeted Tesseract worker script.
+ * In Next.js/Vercel serverless bundles, worker_threads cannot reliably resolve
+ * relative paths via internal __dirname. Explicitly targeting the project root
+ * guarantees the worker thread finds the script.
+ */
+function getWorkerPath(): string | undefined {
+  const candidate = path.resolve(process.cwd(), "node_modules/tesseract.js/src/worker-script/node/index.js");
+  if (existsSync(/*turbopackIgnore: true*/ candidate)) {
+    return candidate;
+  }
+  return undefined;
 }
 
 let workerPromise: Promise<Worker> | null = null;
@@ -105,12 +97,14 @@ function resolveLocalTessdata(langs: string[], cacheDir?: string): LocalTessdata
 async function createEngineWorker(langs: string): Promise<Worker> {
   const langList = langs.split("+").filter(Boolean);
   const cacheDir = getCacheDir();
+  const workerPath = getWorkerPath();
   const local = resolveLocalTessdata(langList, cacheDir);
 
   const worker = await createWorker(langList, 1, {
     // local traineddata files keep the app working without internet access
     langPath: local?.langPath,
     cachePath: cacheDir,
+    workerPath,
     gzip: local?.gzip ?? true,
     cacheMethod: "write",
     logger: () => {},
