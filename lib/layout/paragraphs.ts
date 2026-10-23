@@ -50,6 +50,7 @@ export type ParagraphBuildInput = {
   /** the box the text is aligned inside (column or content width) */
   box: ContentBox;
   regionIndex: number;
+  sliceIndex?: number;
   /** extra leading applied between lines, in px */
   preserveBreaks: boolean;
 };
@@ -196,7 +197,7 @@ export function buildParagraphs(input: ParagraphBuildInput): ParagraphLayout[] {
       spaceBeforePx,
       lineSpacingPx,
       regionIndex,
-      sliceIndex: 0,
+      sliceIndex: input.sliceIndex ?? 0,
       firstLineIndentPx,
       preserveBreaks: input.preserveBreaks,
     });

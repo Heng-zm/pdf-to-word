@@ -30,7 +30,7 @@ function parseOptions(raw: unknown): ExportOptions {
 }
 
 export async function POST(request: Request) {
-  let body: { layout?: DocumentLayout; options?: ExportOptions };
+  let body: { layout?: DocumentLayout; options?: ExportOptions; filename?: string };
   try {
     body = await request.json();
   } catch {
@@ -45,18 +45,26 @@ export async function POST(request: Request) {
   try {
     const options = parseOptions(body.options);
     const buffer = await buildDocx(layout, options);
-    const name = (layout.pages[0]?.regions[0]?.paragraphs[0]?.text ?? "document")
+
+    const rawTitle =
+      body.filename?.replace(/\.[^.]+$/, "") ||
+      layout.pages[0]?.regions[0]?.paragraphs[0]?.text ||
+      "document";
+    const cleanUnicode = rawTitle.replace(/[\\/:*?"<>|\r\n]/g, "").trim().slice(0, 80) || "document";
+    const asciiFallback = cleanUnicode
       .replace(/[^\w\s-]/g, "")
       .trim()
       .slice(0, 60)
       .replace(/\s+/g, "-")
-      .toLowerCase();
+      .toLowerCase() || "document";
+
+    const encodedUtf8 = encodeURIComponent(cleanUnicode);
 
     return new Response(new Uint8Array(buffer), {
       headers: {
         "Content-Type":
           "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "Content-Disposition": `attachment; filename="${name || "document"}.docx"`,
+        "Content-Disposition": `attachment; filename="${asciiFallback}.docx"; filename*=UTF-8''${encodedUtf8}.docx`,
         "Content-Length": String(buffer.length),
       },
     });

@@ -70,7 +70,18 @@ export function isImage(buffer: Buffer): boolean {
   if (buffer[0] === 0xff && buffer[1] === 0xd8) return true; // jpeg
   if (buffer.subarray(0, 4).toString("latin1") === "RIFF" && buffer.subarray(8, 12).toString("latin1") === "WEBP")
     return true;
-  if (buffer.subarray(0, 2).toString("latin1") === "BM") return true;
+  if (buffer.subarray(0, 2).toString("latin1") === "BM") return true; // bmp
+  // tiff: little-endian (II*\0) or big-endian (MM\0*)
+  if (
+    (buffer[0] === 0x49 && buffer[1] === 0x49 && buffer[2] === 0x2a && buffer[3] === 0x00) ||
+    (buffer[0] === 0x4d && buffer[1] === 0x4d && buffer[2] === 0x00 && buffer[3] === 0x2a)
+  ) {
+    return true;
+  }
+  // gif: GIF87a or GIF89a
+  if (buffer.subarray(0, 4).toString("latin1") === "GIF8") return true;
+  // avif / heic
+  if (buffer.subarray(4, 8).toString("latin1") === "ftyp") return true;
   return false;
 }
 

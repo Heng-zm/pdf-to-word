@@ -70,11 +70,13 @@ function buildParagraph(
   overrides: { spaceBeforePx?: number; spaceAfterPx?: number } = {},
 ): Paragraph {
   const halfPoints = fontSizeOf(paragraph, ctx);
-  const bold = ctx.boldHeadings && isHeading(paragraph, ctx);
+  const bold = Boolean(paragraph.bold) || (ctx.boldHeadings && isHeading(paragraph, ctx));
+  const isRtl = ctx.language === "ar-SA" || ctx.language === "he-IL";
   const runOptions = {
     font: ctx.fontFamily,
     size: halfPoints,
-    language: { value: ctx.language },
+    language: { value: ctx.language, ...(isRtl ? { bidirectional: ctx.language } : {}) },
+    ...(isRtl ? { rightToLeft: true } : {}),
     ...(bold ? { bold: true } : {}),
   };
 
@@ -106,6 +108,7 @@ function buildParagraph(
   return new Paragraph({
     children: runs,
     alignment: ALIGNMENTS[paragraph.align],
+    ...(isRtl ? { bidirectional: true } : {}),
     spacing: ctx.preserveSpacing
       ? {
           before: Math.max(0, pxToTwips(spaceBeforePx, ctx.scale)),
@@ -123,8 +126,10 @@ function buildParagraph(
 }
 
 function emptyParagraph(ctx: BuildContext): Paragraph {
+  const isRtl = ctx.language === "ar-SA" || ctx.language === "he-IL";
   return new Paragraph({
     children: [new TextRun({ text: "", font: ctx.fontFamily, size: 2 })],
+    ...(isRtl ? { bidirectional: true } : {}),
     spacing: { before: 0, after: 0, line: 20, lineRule: LineRuleType.EXACT },
   });
 }

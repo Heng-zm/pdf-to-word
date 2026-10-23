@@ -16,9 +16,15 @@ export function Dropzone({ file, onFile, disabled }: DropzoneProps) {
     (files: FileList | null) => {
       const picked = files?.[0];
       if (picked) onFile(picked);
+      if (inputRef.current) inputRef.current.value = "";
     },
     [onFile],
   );
+
+  const handleRemove = useCallback(() => {
+    onFile(null);
+    if (inputRef.current) inputRef.current.value = "";
+  }, [onFile]);
 
   // pasting a screenshot works on every modern browser
   useEffect(() => {
@@ -79,7 +85,7 @@ export function Dropzone({ file, onFile, disabled }: DropzoneProps) {
         <input
           ref={inputRef}
           type="file"
-          accept="image/*,application/pdf,.pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff"
+          accept="image/*,application/pdf,.pdf,.png,.jpg,.jpeg,.webp,.tif,.tiff,.bmp,.gif"
           hidden
           disabled={disabled}
           onChange={(event) => handleFiles(event.target.files)}
@@ -98,7 +104,7 @@ export function Dropzone({ file, onFile, disabled }: DropzoneProps) {
             </div>
             <div className="meta">{(file.size / 1024).toFixed(0)} KB</div>
           </div>
-          <button className="btn btn-sm" onClick={() => onFile(null)} disabled={disabled}>
+          <button className="btn btn-sm" onClick={handleRemove} disabled={disabled}>
             Remove
           </button>
         </div>

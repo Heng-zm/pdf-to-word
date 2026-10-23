@@ -3,12 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "description": "OCR image/PDF to editable DOCX with layout, column and spacing fidelity",
+  "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
+    "test": "node scripts/verify.mjs",
+    "test:ui": "node scripts/test-ui.mjs",
+    "debug:geometry": "tsx scripts/debug-geometry.mjs",
+    "debug:fontsize": "tsx scripts/debug-fontsize.mjs",
+    "debug:paragraphs": "tsx scripts/debug-paragraphs.mjs",
     "tessdata": "node scripts/fetch-tessdata.mjs"
   },
   "dependencies": {

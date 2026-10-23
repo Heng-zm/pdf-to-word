@@ -202,17 +202,32 @@ export default function Home() {
       const response = await fetch("/api/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ layout, options: exportOptions }),
+        body: JSON.stringify({ layout, options: exportOptions, filename: file?.name }),
       });
       if (!response.ok) {
         const detail = await response.json().catch(() => null);
         throw new Error(detail?.error ?? "The export failed.");
       }
+      let filename = (file ? file.name.replace(/\.[^.]+$/, "") : "document") + ".docx";
+      const disposition = response.headers.get("content-disposition");
+      if (disposition) {
+        const utfMatch = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+        if (utfMatch) {
+          try {
+            filename = decodeURIComponent(utfMatch[1]);
+          } catch {
+            /* keep default */
+          }
+        } else {
+          const match = disposition.match(/filename="?([^";]+)"?/i);
+          if (match) filename = match[1];
+        }
+      }
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = "document.docx";
+      link.download = filename;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -223,7 +238,7 @@ export default function Home() {
     } finally {
       setExporting(false);
     }
-  }, [layout, exportOptions, push]);
+  }, [layout, exportOptions, file, push]);
 
   useHotkey({ key: "Enter", meta: true }, () => {
     if (file && !busy) void runOcr();
@@ -261,7 +276,7 @@ export default function Home() {
       window.removeEventListener("dragover", onOver);
       window.removeEventListener("drop", onDrop);
     };
-  }, []);
+  }, [handleFile]);
 
   const stats = useMemo(() => {
     if (!layout) return null;

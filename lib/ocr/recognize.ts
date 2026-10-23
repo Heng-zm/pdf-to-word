@@ -23,15 +23,16 @@ async function cropRegion(
   box: { x0: number; y0: number; x1: number; y1: number },
   width: number,
   height: number,
-): Promise<Buffer> {
+): Promise<{ buffer: Buffer; left: number; top: number }> {
   const left = clamp(Math.floor(box.x0), 0, width - 1);
   const top = clamp(Math.floor(box.y0), 0, height - 1);
   const right = clamp(Math.ceil(box.x1), left + 1, width);
   const bottom = clamp(Math.ceil(box.y1), top + 1, height);
-  return sharp(source)
+  const buffer = await sharp(source)
     .extract({ left, top, width: right - left, height: bottom - top })
     .png()
     .toBuffer();
+  return { buffer, left, top };
 }
 
 function offsetLines(lines: RecognizedLine[], dx: number, dy: number): RecognizedLine[] {
@@ -55,10 +56,10 @@ async function recognizeRegion(
   psm: PSM,
   langs: string,
   expandBy: number,
-): Promise<RecognizedLine[]> {
+): Promise<{ lines: RecognizedLine[]; originX: number; originY: number }> {
   const crop = await cropRegion(source, box, pageWidth, pageHeight);
-  const lines = await recognizeCrop(crop, { psm, dpi: 150 }, langs);
-  if (lines.length || expandBy <= 0) return lines;
+  const lines = await recognizeCrop(crop.buffer, { psm, dpi: 150 }, langs);
+  if (lines.length || expandBy <= 0) return { lines, originX: crop.left, originY: crop.top };
 
   // a very tight crop can leave the engine without enough context to find
   // the baseline, so try again with more room around the text
@@ -69,7 +70,8 @@ async function recognizeRegion(
     y1: Math.min(pageHeight, box.y1 + expandBy),
   };
   const retryCrop = await cropRegion(source, expanded, pageWidth, pageHeight);
-  return recognizeCrop(retryCrop, { psm, dpi: 150 }, langs);
+  const retryLines = await recognizeCrop(retryCrop.buffer, { psm, dpi: 150 }, langs);
+  return { lines: retryLines, originX: retryCrop.left, originY: retryCrop.top };
 }
 
 /** Recognise a single page image and derive its layout. */
@@ -131,7 +133,7 @@ async function ocrPageFromImage(
         x1: slice.x1 + padX,
         y1: Math.min(lowerLimit, slice.y1 + padY),
       };
-      const lines = await recognizeRegion(
+      const { lines, originX, originY } = await recognizeRegion(
         page.png,
         box,
         page.width,
@@ -140,11 +142,12 @@ async function ocrPageFromImage(
         options.langs,
         expandBy,
       );
-      const pageLines = offsetLines(lines, box.x0, box.y0);
+      const pageLines = offsetLines(lines, originX, originY);
       const paragraphs = buildParagraphs({
         lines: pageLines,
         box: { x0: geometry.contentLeft, x1: geometry.contentRight },
         regionIndex,
+        sliceIndex,
         preserveBreaks: true,
       });
       regions.push({
@@ -163,7 +166,7 @@ async function ocrPageFromImage(
           x1: cell.x1 + padX,
           y1: Math.min(lowerLimit, cell.y1 + padY),
         };
-        const lines = await recognizeRegion(
+        const { lines, originX, originY } = await recognizeRegion(
           page.png,
           box,
           page.width,
@@ -172,12 +175,13 @@ async function ocrPageFromImage(
           options.langs,
           expandBy,
         );
-        const pageLines = offsetLines(lines, box.x0, box.y0);
+        const pageLines = offsetLines(lines, originX, originY);
         const column = geometry.columns[cell.columnIndex];
         const paragraphs = buildParagraphs({
           lines: pageLines,
           box: { x0: column?.x0 ?? cell.x0, x1: column?.x1 ?? cell.x1 },
           regionIndex,
+          sliceIndex,
           preserveBreaks: true,
         });
         regions.push({

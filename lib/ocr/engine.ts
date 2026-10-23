@@ -23,21 +23,43 @@ let workerPromise: Promise<Worker> | null = null;
 let workerLangs = "";
 let queue: Promise<unknown> = Promise.resolve();
 
-function hasLocalTessdata(langs: string[]): boolean {
-  if (!existsSync(TESSDATA_DIR)) return false;
-  return langs.every((lang) => existsSync(path.join(TESSDATA_DIR, `${lang}.traineddata.gz`)));
+type LocalTessdataResult = {
+  langPath: string;
+  gzip: boolean;
+} | null;
+
+function resolveLocalTessdata(langs: string[]): LocalTessdataResult {
+  const candidateDirs = [TESSDATA_DIR, process.cwd()];
+
+  for (const dir of candidateDirs) {
+    if (!existsSync(/*turbopackIgnore: true*/ dir)) continue;
+
+    // Check compressed (.traineddata.gz)
+    const allGz = langs.every((lang) => existsSync(/*turbopackIgnore: true*/ path.join(dir, `${lang}.traineddata.gz`)));
+    if (allGz) {
+      return { langPath: dir, gzip: true };
+    }
+
+    // Check uncompressed (.traineddata)
+    const allUncompressed = langs.every((lang) => existsSync(/*turbopackIgnore: true*/ path.join(dir, `${lang}.traineddata`)));
+    if (allUncompressed) {
+      return { langPath: dir, gzip: false };
+    }
+  }
+
+  return null;
 }
 
 async function createEngineWorker(langs: string): Promise<Worker> {
   const langList = langs.split("+").filter(Boolean);
   mkdirSync(CACHE_DIR, { recursive: true });
 
-  const useLocal = hasLocalTessdata(langList);
+  const local = resolveLocalTessdata(langList);
   const worker = await createWorker(langList, 1, {
     // local traineddata files keep the app working without internet access
-    langPath: useLocal ? TESSDATA_DIR : undefined,
+    langPath: local?.langPath,
     cachePath: CACHE_DIR,
-    gzip: true,
+    gzip: local?.gzip ?? true,
     cacheMethod: "write",
     logger: () => {},
     errorHandler: (err) => console.error("[tesseract]", err),
@@ -53,14 +75,15 @@ async function createEngineWorker(langs: string): Promise<Worker> {
 
 /** Get (or create) the shared OCR worker, reinitialising it when the language changes. */
 export async function getWorker(langs: string): Promise<Worker> {
+  if (workerPromise && workerLangs !== langs) {
+    const worker = await workerPromise;
+    workerPromise = null;
+    workerLangs = "";
+    await worker.terminate().catch(() => {});
+  }
   if (!workerPromise) {
     workerLangs = langs;
     workerPromise = createEngineWorker(langs);
-  }
-  if (workerLangs !== langs) {
-    const worker = await workerPromise;
-    await worker.reinitialize(langs, 1);
-    workerLangs = langs;
   }
   return workerPromise;
 }
