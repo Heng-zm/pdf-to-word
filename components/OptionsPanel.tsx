@@ -71,194 +71,263 @@ export function OptionsPanel({
   detectedColumns,
 }: Props) {
   return (
-    <>
-      <p className="section-title">Source</p>
-      <div className="field">
-        <label htmlFor="lang">Recognition language</label>
-        <select
-          id="lang"
-          value={ocr.langs}
-          disabled={disabled}
-          onChange={(event) => onOcrChange({ ...ocr, langs: event.target.value })}
-        >
-          {LANGUAGES.map(([code, label]) => (
-            <option key={code} value={code}>
-              {label}
-            </option>
-          ))}
-        </select>
-        <div className="desc">The language data is downloaded on first use.</div>
-      </div>
+    <div className="options-panel-inner">
+      <div className="options-section">
+        <div className="section-header">
+          <span className="section-badge">01</span>
+          <div>
+            <p className="section-title">Scan &amp; Detection</p>
+            <span className="section-subtitle">Image preprocessing and column analysis</span>
+          </div>
+        </div>
 
-      <div className="row">
         <div className="field">
-          <label htmlFor="scale">PDF resolution</label>
-          <select
-            id="scale"
-            value={ocr.pdfScale}
-            disabled={disabled}
-            onChange={(event) => onOcrChange({ ...ocr, pdfScale: Number(event.target.value) })}
-            title="Resolution used when rasterising a PDF"
-          >
-            <option value={1.5}>108 dpi</option>
-            <option value={2}>144 dpi</option>
-            <option value={3}>216 dpi</option>
-            <option value={4}>288 dpi</option>
-          </select>
+          <label htmlFor="lang">
+            <span>Recognition language</span>
+            <span className="field-hint">OCR Model</span>
+          </label>
+          <div className="select-wrap">
+            <select
+              id="lang"
+              value={ocr.langs}
+              disabled={disabled}
+              onChange={(event) => onOcrChange({ ...ocr, langs: event.target.value })}
+            >
+              {LANGUAGES.map(([code, label]) => (
+                <option key={code} value={code}>
+                  {label}
+                </option>
+              ))}
+            </select>
+            <div className="select-arrow" />
+          </div>
+          <div className="desc">Local models are used instantly; others download on first use.</div>
         </div>
+
+        <div className="row">
+          <div className="field">
+            <label htmlFor="scale">
+              <span>PDF resolution</span>
+            </label>
+            <div className="select-wrap">
+              <select
+                id="scale"
+                value={ocr.pdfScale}
+                disabled={disabled}
+                onChange={(event) => onOcrChange({ ...ocr, pdfScale: Number(event.target.value) })}
+                title="Resolution used when rasterising a PDF"
+              >
+                <option value={1.5}>108 dpi (Fast)</option>
+                <option value={2}>144 dpi (Default)</option>
+                <option value={3}>216 dpi (Crisp)</option>
+                <option value={4}>288 dpi (Ultra)</option>
+              </select>
+              <div className="select-arrow" />
+            </div>
+          </div>
+
+          <div className="field">
+            <label htmlFor="cols">
+              <span>Columns</span>
+            </label>
+            <div className="select-wrap">
+              <select
+                id="cols"
+                value={ocr.forceColumns ?? "auto"}
+                disabled={disabled}
+                onChange={(event) =>
+                  onOcrChange({
+                    ...ocr,
+                    forceColumns: event.target.value === "auto" ? null : Number(event.target.value),
+                  })
+                }
+              >
+                <option value="auto">Auto ({detectedColumns || 1} detected)</option>
+                <option value="1">1 Column (Flat)</option>
+                <option value="2">2 Columns</option>
+                <option value="3">3 Columns</option>
+                <option value="4">4 Columns</option>
+              </select>
+              <div className="select-arrow" />
+            </div>
+          </div>
+        </div>
+
+        <div className="toggle-list">
+          <label className="switch-card">
+            <div className="switch-info">
+              <span className="switch-title">Binarise image</span>
+              <span className="switch-desc">High contrast threshold for faint or uneven scans</span>
+            </div>
+            <div className="switch-control">
+              <input
+                type="checkbox"
+                checked={ocr.binarize}
+                disabled={disabled}
+                onChange={(event) => onOcrChange({ ...ocr, binarize: event.target.checked })}
+              />
+              <span className="switch-slider" />
+            </div>
+          </label>
+
+          <label className="switch-card">
+            <div className="switch-info">
+              <span className="switch-title">Auto-straighten page</span>
+              <span className="switch-desc">Deskew tilted scan angles automatically</span>
+            </div>
+            <div className="switch-control">
+              <input
+                type="checkbox"
+                checked={ocr.deskew}
+                disabled={disabled}
+                onChange={(event) => onOcrChange({ ...ocr, deskew: event.target.checked })}
+              />
+              <span className="switch-slider" />
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <div className="options-divider" />
+
+      <div className="options-section">
+        <div className="section-header">
+          <span className="section-badge">02</span>
+          <div>
+            <p className="section-title">DOCX Typography &amp; Export</p>
+            <span className="section-subtitle">Typography, page setup and spacing rules</span>
+          </div>
+        </div>
+
         <div className="field">
-          <label htmlFor="cols">Columns</label>
-          <select
-            id="cols"
-            value={ocr.forceColumns ?? "auto"}
-            disabled={disabled}
-            onChange={(event) =>
-              onOcrChange({
-                ...ocr,
-                forceColumns: event.target.value === "auto" ? null : Number(event.target.value),
-              })
-            }
-          >
-            <option value="auto">Auto ({detectedColumns || 1} found)</option>
-            <option value="1">Single column</option>
-            <option value="2">Two columns</option>
-            <option value="3">Three columns</option>
-            <option value="4">Four columns</option>
-          </select>
+          <label htmlFor="font">
+            <span>Typeface</span>
+            <span className="field-hint">Font Family</span>
+          </label>
+          <div className="select-wrap">
+            <select
+              id="font"
+              value={exportOptions.fontFamily ?? ""}
+              onChange={(event) => onExportChange({ ...exportOptions, fontFamily: event.target.value })}
+            >
+              <option value="">Auto (Best fit for script)</option>
+              {FONTS.map((font) => (
+                <option key={font} value={font}>
+                  {font}
+                </option>
+              ))}
+            </select>
+            <div className="select-arrow" />
+          </div>
+          <div className="desc">
+            Choosing a script-compatible font prevents missing glyph boxes in Word.
+          </div>
         </div>
-      </div>
 
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={ocr.binarize}
-          disabled={disabled}
-          onChange={(event) => onOcrChange({ ...ocr, binarize: event.target.checked })}
-        />
-        <span>
-          Binarise before recognising
-          <small>Helps with faint or unevenly lit scans.</small>
-        </span>
-      </label>
+        <div className="row">
+          <div className="field">
+            <label htmlFor="size">
+              <span>Base font size</span>
+            </label>
+            <div className="input-wrap">
+              <input
+                id="size"
+                type="number"
+                min={5}
+                max={48}
+                step={0.5}
+                placeholder="Auto (measured)"
+                value={exportOptions.fontSizePt ?? ""}
+                onChange={(event) =>
+                  onExportChange({
+                    ...exportOptions,
+                    fontSizePt: event.target.value === "" ? null : Number(event.target.value),
+                  })
+                }
+              />
+              <span className="input-unit">pt</span>
+            </div>
+          </div>
 
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={ocr.deskew}
-          disabled={disabled}
-          onChange={(event) => onOcrChange({ ...ocr, deskew: event.target.checked })}
-        />
-        <span>
-          Straighten the page
-          <small>Corrects a slight rotation of a photo or scan.</small>
-        </span>
-      </label>
-
-      <div className="divider" />
-      <p className="section-title">Document output</p>
-
-      <div className="field">
-        <label htmlFor="font">Typeface</label>
-        <select
-          id="font"
-          value={exportOptions.fontFamily ?? ""}
-          onChange={(event) => onExportChange({ ...exportOptions, fontFamily: event.target.value })}
-        >
-          <option value="">Match the script</option>
-          {FONTS.map((font) => (
-            <option key={font} value={font}>
-              {font}
-            </option>
-          ))}
-        </select>
-        <div className="desc">
-          A typeface that cannot render the chosen script would show empty boxes in Word.
+          <div className="field">
+            <label htmlFor="pagesize">
+              <span>Page size</span>
+            </label>
+            <div className="select-wrap">
+              <select
+                id="pagesize"
+                value={exportOptions.pageSize}
+                onChange={(event) =>
+                  onExportChange({ ...exportOptions, pageSize: event.target.value as PageSizeName })
+                }
+              >
+                <option value="auto">Match scan</option>
+                <option value="a4">A4 (210×297mm)</option>
+                <option value="letter">Letter (8.5×11in)</option>
+                <option value="legal">Legal (8.5×14in)</option>
+              </select>
+              <div className="select-arrow" />
+            </div>
+          </div>
         </div>
-      </div>
 
-      <div className="row">
         <div className="field">
-          <label htmlFor="size">Base font size</label>
-          <input
-            id="size"
-            type="number"
-            min={5}
-            max={48}
-            step={0.5}
-            placeholder="auto"
-            value={exportOptions.fontSizePt ?? ""}
-            onChange={(event) =>
-              onExportChange({
-                ...exportOptions,
-                fontSizePt: event.target.value === "" ? null : Number(event.target.value),
-              })
-            }
-          />
+          <label htmlFor="colmode">
+            <span>Column handling mode</span>
+          </label>
+          <div className="select-wrap">
+            <select
+              id="colmode"
+              value={exportOptions.columnMode}
+              onChange={(event) =>
+                onExportChange({ ...exportOptions, columnMode: event.target.value as ColumnMode })
+              }
+            >
+              <option value="auto">Automatic (Table for multi-column)</option>
+              <option value="table">Fixed borderless table — exact gutter match</option>
+              <option value="native">Word columns — reflowable magazine layout</option>
+              <option value="single">Single column — continuous text stream</option>
+            </select>
+            <div className="select-arrow" />
+          </div>
         </div>
-        <div className="field">
-          <label htmlFor="pagesize">Page size</label>
-          <select
-            id="pagesize"
-            value={exportOptions.pageSize}
-            onChange={(event) =>
-              onExportChange({ ...exportOptions, pageSize: event.target.value as PageSizeName })
-            }
-          >
-            <option value="auto">Match the source</option>
-            <option value="a4">A4</option>
-            <option value="letter">Letter</option>
-            <option value="legal">Legal</option>
-          </select>
+
+        <div className="toggle-list">
+          <label className="switch-card">
+            <div className="switch-info">
+              <span className="switch-title">Preserve measured spacing</span>
+              <span className="switch-desc">Keep original line height &amp; paragraph gaps</span>
+            </div>
+            <div className="switch-control">
+              <input
+                type="checkbox"
+                checked={exportOptions.preserveSpacing}
+                onChange={(event) =>
+                  onExportChange({ ...exportOptions, preserveSpacing: event.target.checked })
+                }
+              />
+              <span className="switch-slider" />
+            </div>
+          </label>
+
+          <label className="switch-card">
+            <div className="switch-info">
+              <span className="switch-title">Keep line breaks</span>
+              <span className="switch-desc">Retain source line endings inside paragraphs</span>
+            </div>
+            <div className="switch-control">
+              <input
+                type="checkbox"
+                checked={exportOptions.preserveBreaks}
+                onChange={(event) =>
+                  onExportChange({ ...exportOptions, preserveBreaks: event.target.checked })
+                }
+              />
+              <span className="switch-slider" />
+            </div>
+          </label>
         </div>
       </div>
-
-      <div className="field">
-        <label htmlFor="colmode">Column handling</label>
-        <select
-          id="colmode"
-          value={exportOptions.columnMode}
-          onChange={(event) =>
-            onExportChange({ ...exportOptions, columnMode: event.target.value as ColumnMode })
-          }
-        >
-          <option value="auto">Automatic</option>
-          <option value="table">Fixed table - exact gutter</option>
-          <option value="native">Word columns - reflowable</option>
-          <option value="single">Single column - text only</option>
-        </select>
-        <div className="desc">
-          A fixed table reproduces the measured column gap exactly. Word columns reflow the
-          text like a normal magazine layout.
-        </div>
-      </div>
-
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={exportOptions.preserveSpacing}
-          onChange={(event) =>
-            onExportChange({ ...exportOptions, preserveSpacing: event.target.checked })
-          }
-        />
-        <span>
-          Keep measured spacing
-          <small>Line height and paragraph gaps follow the original.</small>
-        </span>
-      </label>
-
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={exportOptions.preserveBreaks}
-          onChange={(event) =>
-            onExportChange({ ...exportOptions, preserveBreaks: event.target.checked })
-          }
-        />
-        <span>
-          Keep the original line breaks
-          <small>Turn off to let the text flow naturally.</small>
-        </span>
-      </label>
-    </>
+    </div>
   );
 }

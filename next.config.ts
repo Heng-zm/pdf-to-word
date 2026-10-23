@@ -9,6 +9,9 @@ const nextConfig: NextConfig = {
     "@napi-rs/canvas",
     "pdfjs-dist",
   ],
+  outputFileTracingIncludes: {
+    "/api/**/*": ["./*.traineddata", "./*.traineddata.gz", "./tessdata/**/*"],
+  },
 };
 
 export default nextConfig;

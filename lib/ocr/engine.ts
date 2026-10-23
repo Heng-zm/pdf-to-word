@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { createWorker, PSM, type Worker } from "tesseract.js";
 
@@ -17,7 +18,54 @@ export type RecognizedLine = {
 };
 
 const TESSDATA_DIR = path.join(process.cwd(), "tessdata");
-const CACHE_DIR = path.join(process.cwd(), ".cache", "tesseract");
+
+/**
+ * Resolves a writable cache directory for Tesseract models.
+ * In serverless environments (AWS Lambda, Vercel, read-only containers),
+ * process.cwd() is /var/task and is strictly read-only. The OS tmpdir() (/tmp)
+ * is the only writable directory.
+ */
+function getCacheDir(): string {
+  if (process.env.TESSERACT_CACHE_DIR) {
+    try {
+      mkdirSync(process.env.TESSERACT_CACHE_DIR, { recursive: true });
+      return process.env.TESSERACT_CACHE_DIR;
+    } catch {
+      // Fall through to tmpdir
+    }
+  }
+
+  const isServerless =
+    Boolean(process.env.VERCEL) ||
+    Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME) ||
+    Boolean(process.env.LAMBDA_TASK_ROOT) ||
+    process.cwd().startsWith("/var/task");
+
+  if (isServerless) {
+    const serverlessCache = path.join(tmpdir(), "tesseract-cache");
+    try {
+      mkdirSync(serverlessCache, { recursive: true });
+      return serverlessCache;
+    } catch {
+      return tmpdir();
+    }
+  }
+
+  // Local development: try .cache/tesseract first, with graceful fallback to tmpdir
+  try {
+    const localCache = path.join(process.cwd(), ".cache", "tesseract");
+    mkdirSync(localCache, { recursive: true });
+    return localCache;
+  } catch {
+    const fallback = path.join(tmpdir(), "tesseract-cache");
+    try {
+      mkdirSync(fallback, { recursive: true });
+      return fallback;
+    } catch {
+      return tmpdir();
+    }
+  }
+}
 
 let workerPromise: Promise<Worker> | null = null;
 let workerLangs = "";
@@ -28,8 +76,12 @@ type LocalTessdataResult = {
   gzip: boolean;
 } | null;
 
-function resolveLocalTessdata(langs: string[]): LocalTessdataResult {
-  const candidateDirs = [TESSDATA_DIR, process.cwd()];
+function resolveLocalTessdata(langs: string[], cacheDir?: string): LocalTessdataResult {
+  const candidateDirs = [
+    TESSDATA_DIR,
+    process.cwd(),
+    ...(cacheDir ? [cacheDir] : []),
+  ];
 
   for (const dir of candidateDirs) {
     if (!existsSync(/*turbopackIgnore: true*/ dir)) continue;
@@ -52,13 +104,13 @@ function resolveLocalTessdata(langs: string[]): LocalTessdataResult {
 
 async function createEngineWorker(langs: string): Promise<Worker> {
   const langList = langs.split("+").filter(Boolean);
-  mkdirSync(CACHE_DIR, { recursive: true });
+  const cacheDir = getCacheDir();
+  const local = resolveLocalTessdata(langList, cacheDir);
 
-  const local = resolveLocalTessdata(langList);
   const worker = await createWorker(langList, 1, {
     // local traineddata files keep the app working without internet access
     langPath: local?.langPath,
-    cachePath: CACHE_DIR,
+    cachePath: cacheDir,
     gzip: local?.gzip ?? true,
     cacheMethod: "write",
     logger: () => {},

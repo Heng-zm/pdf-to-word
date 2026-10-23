@@ -39,6 +39,7 @@ export default function Home() {
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [dragging, setDragging] = useState(false);
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
 
   const { toasts, push, dismiss } = useToasts();
   const isWide = useMediaQuery("(min-width: 1100px)");
@@ -46,6 +47,34 @@ export default function Home() {
   const mainRef = useRef<HTMLElement | null>(null);
 
   const busy = status === "working";
+
+  // Hydrate theme on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("orc_theme") as "dark" | "light" | null;
+      if (saved === "dark" || saved === "light") {
+        setTheme(saved);
+        document.documentElement.setAttribute("data-theme", saved);
+      } else {
+        document.documentElement.setAttribute("data-theme", "dark");
+      }
+    } catch {
+      /* ignore storage unavailable */
+    }
+  }, []);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((current) => {
+      const next = current === "dark" ? "light" : "dark";
+      try {
+        localStorage.setItem("orc_theme", next);
+      } catch {
+        /* ignore */
+      }
+      document.documentElement.setAttribute("data-theme", next);
+      return next;
+    });
+  }, []);
 
   /**
    * Latin typefaces have no Khmer, Thai or CJK glyphs, so the typeface
@@ -157,7 +186,7 @@ export default function Home() {
       const text = cause instanceof Error ? cause.message : "Something went wrong.";
       push("error", text);
     }
-  }, [file, ocrOptions, push]);
+  }, [file, ocrOptions, push, isWide]);
 
   const handleEdit = useCallback((id: string, text: string) => {
     setLayout((current) => {
@@ -194,6 +223,27 @@ export default function Home() {
       };
     });
   }, []);
+
+  const handleAlignChange = useCallback(
+    (id: string, align: "left" | "center" | "right" | "justify") => {
+      setLayout((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          pages: current.pages.map((page) => ({
+            ...page,
+            regions: page.regions.map((region) => ({
+              ...region,
+              paragraphs: region.paragraphs.map((paragraph) =>
+                paragraph.id === id ? { ...paragraph, align } : paragraph,
+              ),
+            })),
+          })),
+        };
+      });
+    },
+    [],
+  );
 
   const handleExport = useCallback(async () => {
     if (!layout) return;
@@ -317,14 +367,16 @@ export default function Home() {
       <header className="topbar">
         <div className="brand">
           <div className="brand-mark">ORC</div>
-          <div>
-            ORC
-            <small>images &amp; PDF to an editable Word document</small>
+          <div className="brand-titles">
+            <span className="brand-name">ORC Studio</span>
+            <span className="brand-tagline">images &amp; PDF to editable Word</span>
           </div>
         </div>
+
         <div className="topbar-spacer" />
+
         {stats ? (
-          <>
+          <div className="telemetry-row">
             <span className="stat">
               <b>{stats.pages}</b> pages
             </span>
@@ -334,14 +386,46 @@ export default function Home() {
             <span className="stat">
               <b>{stats.columns}</b> columns
             </span>
-          </>
+          </div>
         ) : null}
+
+        <button
+          className="theme-toggle-btn"
+          onClick={toggleTheme}
+          aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+          title={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+        >
+          {theme === "dark" ? (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="5" />
+              <line x1="12" y1="1" x2="12" y2="3" />
+              <line x1="12" y1="21" x2="12" y2="23" />
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+              <line x1="1" y1="12" x2="3" y2="12" />
+              <line x1="21" y1="12" x2="23" y2="12" />
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+            </svg>
+          ) : (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+            </svg>
+          )}
+        </button>
+
         <button
           className="btn btn-primary"
           onClick={handleExport}
           disabled={!layout || exporting}
         >
-          {exporting ? <span className="spinner" /> : null}
+          {exporting ? <span className="spinner" /> : (
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+          )}
           {exporting ? "Building" : "Download DOCX"}
         </button>
       </header>
@@ -415,32 +499,49 @@ export default function Home() {
           {!layout ? (
             <div className="panel">
               <div className="empty">
-                <div className="dropzone-icon" style={{ margin: "0 auto" }}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                    <path d="M4 5h16v14H4z" strokeLinejoin="round" />
-                    <path d="M4 9h16M9 9v10" strokeLinecap="round" />
+                <div className="empty-glow" />
+                <div className="hero-icon-cluster">
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                    <polyline points="2 17 12 22 22 17" />
+                    <polyline points="2 12 12 17 22 12" />
                   </svg>
                 </div>
-                <h3>No document yet</h3>
+                <h3>Studio Document Reconstruction</h3>
                 <p>
-                  Upload a scan or a PDF. The text is recognised, the columns and spacing are
-                  measured, and the result is exported as a normal Word document you can edit.
+                  Upload scanned pages, high-res photos, or multi-page PDFs. The layout engine measures
+                  columns, baseline geometry, and margins to build clean, fully reflowable Word documents.
                 </p>
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 10,
-                    justifyContent: "center",
-                    flexWrap: "wrap",
-                    marginTop: 18,
-                  }}
-                >
-                  <button className="btn" onClick={loadSample}>
+
+                <div className="sample-actions">
+                  <button className="btn btn-primary" onClick={loadSample}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                      <line x1="12" y1="18" x2="12" y2="12" />
+                      <line x1="9" y1="15" x2="15" y2="15" />
+                    </svg>
                     Try the sample document
                   </button>
                 </div>
-                <p className="muted" style={{ marginTop: 16 }}>
-                  Tip: press <kbd>Ctrl</kbd> + <kbd>Enter</kbd> to recognise the document.
+
+                <div className="features-grid">
+                  <div className="feature-pill-card">
+                    <b>Column Gutter Reconstruction</b>
+                    <span>Converts multi-column pages into native Word table grids without floating textboxes.</span>
+                  </div>
+                  <div className="feature-pill-card">
+                    <b>Proportional Typography</b>
+                    <span>Calibrates point sizes, line pitch and character metrics automatically.</span>
+                  </div>
+                  <div className="feature-pill-card">
+                    <b>Zero-Cloud Local Privacy</b>
+                    <span>High-precision local Tesseract models ensure sensitive pages never leave your device.</span>
+                  </div>
+                </div>
+
+                <p className="muted" style={{ marginTop: 22 }}>
+                  Pro tip: press <kbd>Ctrl</kbd> + <kbd>Enter</kbd> to recognise the document instantly.
                 </p>
               </div>
             </div>
@@ -506,7 +607,7 @@ export default function Home() {
                           </span>
                           <span className="tag">{page.columns.length || 1} columns</span>
                           <div className="spacer" />
-                          <span className="muted">Click any text to correct it</span>
+                          <span className="muted">Click any text block to correct it</span>
                         </div>
                         <div className="canvas-scroll" ref={setScrollRef}>
                           <PageCanvas
@@ -556,7 +657,49 @@ export default function Home() {
                               <span>Lines</span>
                               <b>{selected.lines.length}</b>
                             </div>
+
                             <div className="divider" />
+
+                            <div>
+                              <span style={{ fontSize: 11, fontWeight: 600, color: "var(--ink-secondary)", display: "block", marginBottom: 4 }}>
+                                Text alignment
+                              </span>
+                              <div className="align-btn-group" role="group" aria-label="Text alignment">
+                                {(["left", "center", "right", "justify"] as const).map((align) => (
+                                  <button
+                                    key={align}
+                                    type="button"
+                                    aria-pressed={selected.align === align}
+                                    onClick={() => handleAlignChange(selected.id, align)}
+                                    title={`Align ${align}`}
+                                  >
+                                    {align === "left" && (
+                                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                                        <line x1="21" y1="6" x2="3" y2="6" /><line x1="15" y1="12" x2="3" y2="12" /><line x1="17" y1="18" x2="3" y2="18" />
+                                      </svg>
+                                    )}
+                                    {align === "center" && (
+                                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                                        <line x1="18" y1="6" x2="6" y2="6" /><line x1="21" y1="12" x2="3" y2="12" /><line x1="18" y1="18" x2="6" y2="18" />
+                                      </svg>
+                                    )}
+                                    {align === "right" && (
+                                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                                        <line x1="21" y1="6" x2="3" y2="6" /><line x1="21" y1="12" x2="9" y2="12" /><line x1="21" y1="18" x2="7" y2="18" />
+                                      </svg>
+                                    )}
+                                    {align === "justify" && (
+                                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                                        <line x1="21" y1="6" x2="3" y2="6" /><line x1="21" y1="12" x2="3" y2="12" /><line x1="21" y1="18" x2="3" y2="18" />
+                                      </svg>
+                                    )}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="divider" />
+
                             <label className="check">
                               <input
                                 type="checkbox"
@@ -565,9 +708,26 @@ export default function Home() {
                               />
                               <span>
                                 Render in bold
-                                <small>Headings are often set in bold.</small>
+                                <small>Headings and emphasis are preserved in DOCX.</small>
                               </span>
                             </label>
+
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-block"
+                              style={{ marginTop: 10 }}
+                              onClick={() => {
+                                navigator.clipboard.writeText(selected.text);
+                                push("info", "Paragraph text copied to clipboard.");
+                              }}
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                              </svg>
+                              Copy block text
+                            </button>
+
                             <div className="divider" />
                             <div className="muted">{selected.text.length} characters</div>
                           </>
@@ -629,7 +789,11 @@ export default function Home() {
                   </div>
                   <div className="panel-body">
                     {layout.pages.map((page) => (
-                      <div key={page.index} style={{ marginBottom: 18 }}>
+                      <div key={page.index} style={{ marginBottom: 20 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                          <span className="badge">Page {page.index + 1}</span>
+                          <span className="muted">{page.regions.length} regions</span>
+                        </div>
                         {page.regions.map((region) => (
                           <div key={`${region.sliceIndex}-${region.columnIndex}`}>
                             {region.paragraphs.map((paragraph) => (
@@ -639,7 +803,7 @@ export default function Home() {
                                   margin: "0 0 10px",
                                   paddingLeft: region.kind === "column" ? 16 : 0,
                                   borderLeft:
-                                    region.kind === "column" ? "2px solid var(--line)" : undefined,
+                                    region.kind === "column" ? "2px solid var(--accent-primary)" : undefined,
                                   whiteSpace: "pre-wrap",
                                 }}
                               >
