@@ -135,8 +135,17 @@ export default function Home() {
     body.append("file", file);
     body.append("options", JSON.stringify(ocrOptions));
 
+    const abortController = new AbortController();
+    const timer = setTimeout(() => {
+      abortController.abort();
+    }, 120000);
+
     try {
-      const response = await fetch("/api/ocr", { method: "POST", body });
+      const response = await fetch("/api/ocr", {
+        method: "POST",
+        body,
+        signal: abortController.signal,
+      });
       if (!response.ok || !response.body) {
         const detail = await response.json().catch(() => null);
         throw new Error(detail?.error ?? `The server returned ${response.status}.`);
@@ -145,6 +154,7 @@ export default function Home() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let hasResult = false;
 
       for (;;) {
         const { done, value } = await reader.read();
@@ -162,6 +172,7 @@ export default function Home() {
             setPageProgress({ page: event.page, pages: event.pages });
             setMessage(`Reading page ${event.page} of ${event.pages}`);
           } else if (event.type === "result") {
+            hasResult = true;
             setLayout(event.layout);
             setStatus("done");
             setMessage("");
@@ -179,12 +190,25 @@ export default function Home() {
           }
         }
       }
+
+      if (!hasResult) {
+        throw new Error("Recognition ended without layout output. Check server logs or try a smaller document.");
+      }
     } catch (cause) {
       setStatus("error");
       setMessage("");
       setPageProgress(null);
-      const text = cause instanceof Error ? cause.message : "Something went wrong.";
+      let text = "Something went wrong.";
+      if (cause instanceof Error) {
+        if (cause.name === "AbortError") {
+          text = "The OCR process timed out (exceeded 120s limit).";
+        } else {
+          text = cause.message;
+        }
+      }
       push("error", text);
+    } finally {
+      clearTimeout(timer);
     }
   }, [file, ocrOptions, push, isWide]);
 

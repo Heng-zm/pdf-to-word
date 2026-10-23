@@ -48,13 +48,22 @@ function getCacheDir(): string {
 /**
  * Resolves the Node-targeted Tesseract worker script.
  * In Next.js/Vercel serverless bundles, worker_threads cannot reliably resolve
- * relative paths via internal __dirname. Explicitly targeting the project root
- * guarantees the worker thread finds the script.
+ * relative paths via internal __dirname. Explicitly resolving via require.resolve
+ * or the project root guarantees the worker thread finds the script.
  */
 function getWorkerPath(): string | undefined {
-  const candidate = path.resolve(process.cwd(), "node_modules/tesseract.js/src/worker-script/node/index.js");
-  if (existsSync(/*turbopackIgnore: true*/ candidate)) {
-    return candidate;
+  try {
+    const { createRequire } = require("node:module");
+    const req = createRequire(process.cwd() + "/package.json");
+    const resolved = req.resolve("tesseract.js/src/worker-script/node/index.js");
+    if (existsSync(/*turbopackIgnore: true*/ resolved)) return resolved;
+  } catch {
+    /* fallback to direct filesystem path */
+  }
+
+  const direct = path.resolve(process.cwd(), "node_modules/tesseract.js/src/worker-script/node/index.js");
+  if (existsSync(/*turbopackIgnore: true*/ direct)) {
+    return direct;
   }
   return undefined;
 }
@@ -100,16 +109,25 @@ async function createEngineWorker(langs: string): Promise<Worker> {
   const workerPath = getWorkerPath();
   const local = resolveLocalTessdata(langList, cacheDir);
 
-  const worker = await createWorker(langList, 1, {
-    // local traineddata files keep the app working without internet access
-    langPath: local?.langPath,
-    cachePath: cacheDir,
-    workerPath,
-    gzip: local?.gzip ?? true,
-    cacheMethod: "write",
-    logger: () => {},
-    errorHandler: (err) => console.error("[tesseract]", err),
-  });
+  // Guard worker creation with a 45-second timeout so it never hangs indefinitely
+  const worker = await Promise.race([
+    createWorker(langList, 1, {
+      langPath: local?.langPath,
+      cachePath: cacheDir,
+      workerPath,
+      gzip: local?.gzip ?? true,
+      cacheMethod: "write",
+      logger: (msg) => {
+        if (msg.status && msg.status !== "recognizing text") {
+          console.log(`[tesseract] ${msg.status} ${msg.progress ? Math.round(msg.progress * 100) + "%" : ""}`);
+        }
+      },
+      errorHandler: (err) => console.error("[tesseract error]", err),
+    }),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("OCR engine initialization timed out after 45s.")), 45000),
+    ),
+  ]);
 
   await worker.setParameters({
     preserve_interword_spaces: "1",
@@ -122,14 +140,19 @@ async function createEngineWorker(langs: string): Promise<Worker> {
 /** Get (or create) the shared OCR worker, reinitialising it when the language changes. */
 export async function getWorker(langs: string): Promise<Worker> {
   if (workerPromise && workerLangs !== langs) {
-    const worker = await workerPromise;
+    const existing = await workerPromise.catch(() => null);
     workerPromise = null;
     workerLangs = "";
-    await worker.terminate().catch(() => {});
+    if (existing) await existing.terminate().catch(() => {});
   }
   if (!workerPromise) {
     workerLangs = langs;
-    workerPromise = createEngineWorker(langs);
+    workerPromise = createEngineWorker(langs).catch((err) => {
+      // Clear worker state so subsequent attempts can retry instead of being stuck on a rejected promise
+      workerPromise = null;
+      workerLangs = "";
+      throw err;
+    });
   }
   return workerPromise;
 }
