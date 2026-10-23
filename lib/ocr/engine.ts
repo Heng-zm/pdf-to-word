@@ -191,14 +191,14 @@ async function createEngineWorker(langs: string, quality: ModelQuality = "best")
   const local = resolveLocalTessdata(langList, cacheDir);
 
   // If local model is not found, determine the remote CDN based on chosen quality
-  let langPath = local?.langPath;
+  let langPath: string | undefined = local?.langPath;
   if (!langPath) {
-    if (quality === "fast") {
-      langPath = "https://cdn.jsdelivr.net/npm/@tesseract.js-data";
-    } else if (quality === "standard") {
+    if (quality === "fast" || quality === "standard") {
       langPath = "https://tessdata.projectnaptha.com/4.0.0";
     } else {
-      langPath = "https://cdn.jsdelivr.net/npm/@tesseract.js-data";
+      // "best": leaving langPath undefined allows tesseract.js to dynamically resolve
+      // https://cdn.jsdelivr.net/npm/@tesseract.js-data/${lang}/4.0.0_best_int for each language
+      langPath = undefined;
     }
   }
 
